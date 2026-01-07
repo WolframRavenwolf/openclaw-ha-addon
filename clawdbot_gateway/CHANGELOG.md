@@ -1,7 +1,11 @@
 # Changelog
 
+## 0.2.6
+- Auto-restart gateway on unclean exits (e.g., shutdown timeout).
+
 ## 0.2.5
 - BREAKING: Renamed `repo_ref` to `branch`. Set to track a specific branch; omit to use repo's default.
+- Config: `github_token` now uses password field (masked in UI).
 
 ## 0.2.4
 - Docs: repo-based install steps and add-on info links.

@@ -274,11 +274,16 @@ while true; do
     tail_pid=""
   fi
 
-  if [ "${status}" -eq 129 ]; then
+  if [ "${status}" -eq 0 ]; then
+    log "gateway exited cleanly"
+    break
+  elif [ "${status}" -eq 129 ]; then
     log "gateway exited after SIGUSR1; restarting"
     continue
+  else
+    log "gateway exited uncleanly (status=${status}); restarting"
+    continue
   fi
-  break
 done
 
 exit "${status}"
