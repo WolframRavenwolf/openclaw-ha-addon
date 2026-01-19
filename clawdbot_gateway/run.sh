@@ -5,21 +5,15 @@ log() {
   printf "[addon] %s\n" "$*"
 }
 
-log "run.sh version=2026-02-01-openclaw-only"
+log "run.sh version=2026-01-19-branch-tags"
 
-BASE_DIR=/config/openclaw
-STATE_DIR="${BASE_DIR}/.openclaw"
-CONFIG_PATH="${STATE_DIR}/openclaw.json"
-REPO_DIR="${BASE_DIR}/openclaw-src"
+BASE_DIR=/config/clawdbot
+STATE_DIR="${BASE_DIR}/.clawdbot"
+REPO_DIR="${BASE_DIR}/clawdbot-src"
 WORKSPACE_DIR="${BASE_DIR}/workspace"
 SSH_AUTH_DIR="${BASE_DIR}/.ssh"
-PNPM_HOME="${BASE_DIR}/.local/share/pnpm"
 
-if [ -x /migrate.sh ]; then
-  /migrate.sh
-fi
-
-mkdir -p "${BASE_DIR}" "${STATE_DIR}" "${WORKSPACE_DIR}" "${SSH_AUTH_DIR}" "${PNPM_HOME}"
+mkdir -p "${BASE_DIR}" "${STATE_DIR}" "${WORKSPACE_DIR}" "${SSH_AUTH_DIR}"
 
 # Create persistent directories
 mkdir -p "${BASE_DIR}/.config/gh" "${BASE_DIR}/.local" "${BASE_DIR}/.cache" "${BASE_DIR}/.npm" "${BASE_DIR}/bin"
@@ -41,27 +35,31 @@ for dir in .ssh .config .local .cache .npm; do
 done
 log "persistent home symlinks configured"
 
+if [ -d /root/.clawdbot ] && [ ! -f "${STATE_DIR}/clawdbot.json" ]; then
+  cp -a /root/.clawdbot/. "${STATE_DIR}/"
+fi
+
+if [ -d /root/clawdbot-src ] && [ ! -d "${REPO_DIR}" ]; then
+  mv /root/clawdbot-src "${REPO_DIR}"
+fi
+
 if [ -d /root/workspace ] && [ ! -d "${WORKSPACE_DIR}" ]; then
   mv /root/workspace "${WORKSPACE_DIR}"
 fi
 
 export HOME="${BASE_DIR}"
-export PNPM_HOME="${PNPM_HOME}"
-export PATH="${BASE_DIR}/bin:${PNPM_HOME}:${PATH}"
-export CI=true
-export OPENCLAW_STATE_DIR="${STATE_DIR}"
-export OPENCLAW_CONFIG_PATH="${CONFIG_PATH}"
+export CLAWDBOT_STATE_DIR="${STATE_DIR}"
+export CLAWDBOT_CONFIG_PATH="${STATE_DIR}/clawdbot.json"
 
-log "config path=${CONFIG_PATH}"
+log "config path=${CLAWDBOT_CONFIG_PATH}"
 
-cat > /etc/profile.d/openclaw.sh <<EOF
+cat > /etc/profile.d/clawdbot.sh <<EOF
 export HOME="${BASE_DIR}"
 export GH_CONFIG_DIR="${BASE_DIR}/.config/gh"
-export PNPM_HOME="${PNPM_HOME}"
-export PATH="${BASE_DIR}/bin:${PNPM_HOME}:\${PATH}"
+export PATH="${BASE_DIR}/bin:\${PATH}"
 if [ -n "\${SSH_CONNECTION:-}" ]; then
-  export OPENCLAW_STATE_DIR="${STATE_DIR}"
-  export OPENCLAW_CONFIG_PATH="${CONFIG_PATH}"
+  export CLAWDBOT_STATE_DIR="${STATE_DIR}"
+  export CLAWDBOT_CONFIG_PATH="${STATE_DIR}/clawdbot.json"
   cd "${REPO_DIR}" 2>/dev/null || true
 fi
 EOF
@@ -141,40 +139,6 @@ if [ -n "${BRANCH}" ]; then
   log "branch=${BRANCH}"
 fi
 
-require_openclaw_repo() {
-  local name
-  if [ ! -f "${REPO_DIR}/package.json" ]; then
-    log "missing package.json in repo; update repo_url/branch to OpenClaw"
-    exit 1
-  fi
-  name="$(node -e "const fs=require('fs');const p='${REPO_DIR}/package.json';const data=JSON.parse(fs.readFileSync(p,'utf8'));process.stdout.write(data.name||'');")"
-  if [ "${name}" != "openclaw" ]; then
-    log "unsupported repo (${name}); only OpenClaw is supported"
-    log "update repo_url/branch to https://github.com/openclaw/openclaw.git and restart the add-on"
-    exit 1
-  fi
-  if [ ! -f "${REPO_DIR}/openclaw.mjs" ]; then
-    log "openclaw.mjs missing; update repo_url/branch to a recent OpenClaw revision"
-    exit 1
-  fi
-}
-
-ensure_openclaw_wrapper() {
-  cat > "${BASE_DIR}/bin/openclaw" <<'EOF_WRAPPER'
-#!/usr/bin/env bash
-set -euo pipefail
-REPO_DIR="/config/openclaw/openclaw-src"
-exec node "${REPO_DIR}/openclaw.mjs" "$@"
-EOF_WRAPPER
-  chmod +x "${BASE_DIR}/bin/openclaw"
-}
-
-ensure_gateway_auth_token() {
-  node -e "const fs=require('fs');const crypto=require('crypto');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const auth=gateway.auth||{};let updated=false;const token=String(auth.token||'').trim();if(!token){auth.token=crypto.randomBytes(24).toString('hex');auth.mode=auth.mode||'token';gateway.auth=auth;data.gateway=gateway;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');updated=true;}if(updated){console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
-}
-
-needs_build="true"
-
 if [ ! -d "${REPO_DIR}/.git" ]; then
   log "cloning repo ${REPO_URL} -> ${REPO_DIR}"
   rm -rf "${REPO_DIR}"
@@ -206,75 +170,88 @@ else
     git -C "${REPO_DIR}" checkout "${DEFAULT_BRANCH}"
     git -C "${REPO_DIR}" reset --hard "origin/${DEFAULT_BRANCH}"
   fi
+  git -C "${REPO_DIR}" clean -fd
 fi
 
 cd "${REPO_DIR}"
 
-require_openclaw_repo
-ensure_openclaw_wrapper
-
-if [ ! -d "${REPO_DIR}/node_modules" ]; then
-  needs_build="true"
-fi
-
-needs_ui_build="${needs_build}"
+log "installing dependencies"
+pnpm config set confirmModulesPurge false >/dev/null 2>&1 || true
+pnpm install --no-frozen-lockfile --prefer-frozen-lockfile
+log "building gateway"
+pnpm build
 if [ ! -d "${REPO_DIR}/ui/node_modules" ]; then
-  needs_ui_build="true"
+  log "installing UI dependencies"
+  pnpm ui:install
 fi
+log "building control UI"
+pnpm ui:build
 
-if [ "${needs_build}" = "true" ] || [ "${needs_ui_build}" = "true" ]; then
-  pnpm config set confirmModulesPurge false >/dev/null 2>&1 || true
-  pnpm config set global-bin-dir "${PNPM_HOME}" >/dev/null 2>&1 || true
-  pnpm config set global-dir "${BASE_DIR}/.local/share/pnpm/global" >/dev/null 2>&1 || true
-fi
-
-if [ "${needs_build}" = "true" ]; then
-  log "installing dependencies"
-  pnpm install --no-frozen-lockfile --prefer-frozen-lockfile --prod=false
-  log "building gateway"
-  pnpm build
+if [ ! -f "${CLAWDBOT_CONFIG_PATH}" ]; then
+  pnpm clawdbot setup --workspace "${WORKSPACE_DIR}"
 else
-  log "repo unchanged; skipping dependency install/build"
+  log "config exists; skipping clawdbot setup"
 fi
 
-if [ "${needs_ui_build}" = "true" ]; then
-  if [ ! -d "${REPO_DIR}/ui/node_modules" ]; then
-    log "installing UI dependencies"
-    pnpm ui:install
-  fi
-  log "building control UI"
-  pnpm ui:build
-else
-  log "repo unchanged; skipping UI build"
-fi
+ensure_gateway_mode() {
+  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.CLAWDBOT_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const mode=String(gateway.mode||'').trim();if(!mode){gateway.mode='local';data.gateway=gateway;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
+}
 
-if [ ! -f "${OPENCLAW_CONFIG_PATH}" ]; then
-  openclaw setup --workspace "${WORKSPACE_DIR}"
-else
-  log "config exists; skipping openclaw setup"
-fi
+read_gateway_mode() {
+  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.CLAWDBOT_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const mode=String(gateway.mode||'').trim();if(mode){console.log(mode);}"; 2>/dev/null
+}
 
-if [ -f "${OPENCLAW_CONFIG_PATH}" ]; then
-  auth_status="$(ensure_gateway_auth_token || true)"
-  if [ "${auth_status}" = "updated" ]; then
-    log "gateway.auth.token set (missing)"
-  elif [ "${auth_status}" = "unchanged" ]; then
-    log "gateway.auth.token already set"
+ensure_log_file() {
+  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.CLAWDBOT_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const logging=data.logging||{};const file=String(logging.file||'').trim();if(!file){logging.file='/tmp/clawdbot/clawdbot.log';data.logging=logging;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
+}
+
+read_log_file() {
+  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.CLAWDBOT_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const logging=data.logging||{};const file=String(logging.file||'').trim();if(file){console.log(file);}"; 2>/dev/null
+}
+
+if [ -f "${CLAWDBOT_CONFIG_PATH}" ]; then
+  mode_status="$(ensure_gateway_mode || true)"
+  if [ "${mode_status}" = "updated" ]; then
+    log "gateway.mode set to local (missing)"
+  elif [ "${mode_status}" = "unchanged" ]; then
+    log "gateway.mode already set"
   else
-    log "failed to normalize gateway.auth.token (invalid config?)"
+    log "failed to normalize gateway.mode (invalid config?)"
+  fi
+fi
+
+LOG_FILE="/tmp/clawdbot/clawdbot.log"
+if [ -f "${CLAWDBOT_CONFIG_PATH}" ]; then
+  log_status="$(ensure_log_file || true)"
+  if [ "${log_status}" = "updated" ]; then
+    log "logging.file set to ${LOG_FILE} (missing)"
+  elif [ "${log_status}" = "unchanged" ]; then
+    read_log="$(read_log_file || true)"
+    if [ -n "${read_log}" ]; then
+      LOG_FILE="${read_log}"
+    fi
+  else
+    log "failed to normalize logging.file (invalid config?)"
   fi
 fi
 
 PORT="$(jq -r .port /data/options.json)"
 VERBOSE="$(jq -r .verbose /data/options.json)"
+
 if [ -z "${PORT}" ] || [ "${PORT}" = "null" ]; then
   PORT="18789"
 fi
 
 ALLOW_UNCONFIGURED=()
-if [ ! -f "${OPENCLAW_CONFIG_PATH}" ]; then
+if [ ! -f "${CLAWDBOT_CONFIG_PATH}" ]; then
   log "config missing; allowing unconfigured gateway start"
   ALLOW_UNCONFIGURED=(--allow-unconfigured)
+else
+  gateway_mode="$(read_gateway_mode || true)"
+  if [ -z "${gateway_mode}" ]; then
+    log "gateway.mode missing; allowing unconfigured gateway start"
+    ALLOW_UNCONFIGURED=(--allow-unconfigured)
+  fi
 fi
 
 ARGS=(gateway "${ALLOW_UNCONFIGURED[@]}" --port "${PORT}")
@@ -282,4 +259,64 @@ if [ "${VERBOSE}" = "true" ]; then
   ARGS+=(--verbose)
 fi
 
-exec openclaw "${ARGS[@]}"
+child_pid=""
+tail_pid=""
+
+forward_usr1() {
+  if [ -n "${child_pid}" ]; then
+    if ! pkill -USR1 -P "${child_pid}" 2>/dev/null; then
+      kill -USR1 "${child_pid}" 2>/dev/null || true
+    fi
+    log "forwarded SIGUSR1 to gateway process"
+  fi
+}
+
+shutdown_child() {
+  if [ -n "${tail_pid}" ]; then
+    kill -TERM "${tail_pid}" 2>/dev/null || true
+  fi
+  if [ -n "${child_pid}" ]; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+  fi
+}
+
+start_log_tail() {
+  local file="$1"
+  (
+    while [ ! -f "${file}" ]; do
+      sleep 1
+    done
+    tail -n +1 -F "${file}"
+  ) &
+  tail_pid=$!
+}
+
+trap forward_usr1 USR1
+trap shutdown_child TERM INT
+
+while true; do
+  pnpm clawdbot "${ARGS[@]}" &
+  child_pid=$!
+  start_log_tail "${LOG_FILE}"
+  set +e
+  wait "${child_pid}"
+  status=$?
+  set -e
+  if [ -n "${tail_pid}" ]; then
+    kill -TERM "${tail_pid}" 2>/dev/null || true
+    tail_pid=""
+  fi
+
+  if [ "${status}" -eq 0 ]; then
+    log "gateway exited cleanly"
+    break
+  elif [ "${status}" -eq 129 ]; then
+    log "gateway exited after SIGUSR1; restarting"
+    continue
+  else
+    log "gateway exited uncleanly (status=${status}); restarting"
+    continue
+  fi
+done
+
+exit "${status}"
