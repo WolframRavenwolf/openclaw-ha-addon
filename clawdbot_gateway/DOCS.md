@@ -49,13 +49,13 @@ SSH into the add-on and run the configurator:
 ```bash
 ssh -p 2222 root@<ha-host>
 cd /config/openclaw/openclaw-src
-pnpm openclaw onboard
+openclaw onboard
 ```
 
 Or use the shorter flow:
 
 ```bash
-pnpm openclaw configure
+openclaw configure
 ```
 
 The gateway auto-reloads config changes. Restart the add-on only if you change SSH keys or build settings:
@@ -79,7 +79,7 @@ Then point the OpenClaw app or the CLI at `ws://127.0.0.1:18789`.
 ### Bind Mode
 
 Configure bind mode via the OpenClaw CLI (over SSH), not in the add-on options.
-Use `pnpm openclaw configure` or `pnpm openclaw onboard` to set it in `openclaw.json`.
+Use `openclaw configure` or `openclaw onboard` to set it in `openclaw.json`.
 
 ## Data Locations
 

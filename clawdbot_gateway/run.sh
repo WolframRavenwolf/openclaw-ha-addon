@@ -13,12 +13,13 @@ CONFIG_PATH="${STATE_DIR}/openclaw.json"
 REPO_DIR="${BASE_DIR}/openclaw-src"
 WORKSPACE_DIR="${BASE_DIR}/workspace"
 SSH_AUTH_DIR="${BASE_DIR}/.ssh"
+PNPM_HOME="${BASE_DIR}/.local/share/pnpm"
 
 if [ -x /migrate.sh ]; then
   /migrate.sh
 fi
 
-mkdir -p "${BASE_DIR}" "${STATE_DIR}" "${WORKSPACE_DIR}" "${SSH_AUTH_DIR}"
+mkdir -p "${BASE_DIR}" "${STATE_DIR}" "${WORKSPACE_DIR}" "${SSH_AUTH_DIR}" "${PNPM_HOME}"
 
 # Create persistent directories
 mkdir -p "${BASE_DIR}/.config/gh" "${BASE_DIR}/.local" "${BASE_DIR}/.cache" "${BASE_DIR}/.npm" "${BASE_DIR}/bin"
@@ -45,6 +46,8 @@ if [ -d /root/workspace ] && [ ! -d "${WORKSPACE_DIR}" ]; then
 fi
 
 export HOME="${BASE_DIR}"
+export PNPM_HOME="${PNPM_HOME}"
+export PATH="${BASE_DIR}/bin:${PNPM_HOME}:${PATH}"
 export OPENCLAW_STATE_DIR="${STATE_DIR}"
 export OPENCLAW_CONFIG_PATH="${CONFIG_PATH}"
 
@@ -53,7 +56,8 @@ log "config path=${CONFIG_PATH}"
 cat > /etc/profile.d/openclaw.sh <<EOF
 export HOME="${BASE_DIR}"
 export GH_CONFIG_DIR="${BASE_DIR}/.config/gh"
-export PATH="${BASE_DIR}/bin:\${PATH}"
+export PNPM_HOME="${PNPM_HOME}"
+export PATH="${BASE_DIR}/bin:${PNPM_HOME}:\${PATH}"
 if [ -n "\${SSH_CONNECTION:-}" ]; then
   export OPENCLAW_STATE_DIR="${STATE_DIR}"
   export OPENCLAW_CONFIG_PATH="${CONFIG_PATH}"
@@ -137,12 +141,25 @@ if [ -n "${BRANCH}" ]; then
 fi
 
 require_openclaw_cli() {
-  if pnpm openclaw --version >/dev/null 2>&1; then
+  local out
+  if out="$(openclaw --version 2>&1)"; then
     return 0
   fi
-  log "openclaw CLI not found in repo; legacy clawdbot/moltbot revisions are unsupported"
-  log "update repo_url/branch to https://github.com/openclaw/openclaw.git and restart the add-on"
+  log "openclaw CLI failed to start; ensure repo_url/branch points at a recent OpenClaw revision"
+  while IFS= read -r line; do
+    log "${line}"
+  done <<< "${out}"
   exit 1
+}
+
+ensure_openclaw_wrapper() {
+  cat > "${BASE_DIR}/bin/openclaw" <<'EOF_WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_DIR="/config/openclaw/openclaw-src"
+exec pnpm -C "${REPO_DIR}" exec openclaw "$@"
+EOF_WRAPPER
+  chmod +x "${BASE_DIR}/bin/openclaw"
 }
 
 if [ ! -d "${REPO_DIR}/.git" ]; then
@@ -174,7 +191,10 @@ cd "${REPO_DIR}"
 
 log "installing dependencies"
 pnpm config set confirmModulesPurge false >/dev/null 2>&1 || true
+pnpm config set global-bin-dir "${PNPM_HOME}" >/dev/null 2>&1 || true
+pnpm config set global-dir "${BASE_DIR}/.local/share/pnpm/global" >/dev/null 2>&1 || true
 pnpm install --no-frozen-lockfile --prefer-frozen-lockfile --prod=false
+ensure_openclaw_wrapper
 require_openclaw_cli
 log "building gateway"
 pnpm build
@@ -186,7 +206,7 @@ log "building control UI"
 pnpm ui:build
 
 if [ ! -f "${OPENCLAW_CONFIG_PATH}" ]; then
-  pnpm openclaw setup --workspace "${WORKSPACE_DIR}"
+  openclaw setup --workspace "${WORKSPACE_DIR}"
 else
   log "config exists; skipping openclaw setup"
 fi
@@ -381,7 +401,7 @@ trap forward_usr1 USR1
 trap shutdown_child TERM INT
 
 while true; do
-  pnpm openclaw "${ARGS[@]}" &
+  openclaw "${ARGS[@]}" &
   child_pid=$!
   start_log_tail "${LOG_FILE}"
   set +e
