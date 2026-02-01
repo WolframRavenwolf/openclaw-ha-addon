@@ -60,9 +60,10 @@ RUN ARCH=$(echo ${TARGETARCH:-$(uname -m)} | sed 's/aarch64/arm64/;s/x86_64/amd6
      | tar xz -C /usr/local/bin gog \
   && chmod +x /usr/local/bin/gog
 
-WORKDIR /opt/clawdbot
+WORKDIR /opt/openclaw
 
 COPY run.sh /run.sh
-RUN chmod +x /run.sh
+COPY migrate.sh /migrate.sh
+RUN chmod +x /run.sh /migrate.sh
 
 CMD [ "/run.sh" ]
