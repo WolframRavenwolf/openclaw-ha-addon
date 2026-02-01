@@ -19,9 +19,6 @@
   "options": {
     "port": 18789,
     "verbose": false,
-    "log_format": "pretty",
-    "log_color": false,
-    "log_fields": "",
     "repo_url": "https://github.com/openclaw/openclaw.git",
     "branch": "",
     "github_token": "",
@@ -31,9 +28,6 @@
   "schema": {
     "port": "int(1,65535)",
     "verbose": "bool",
-    "log_format": "str",
-    "log_color": "bool",
-    "log_fields": "str?",
     "repo_url": "str",
     "branch": "str?",
     "github_token": "password?",
