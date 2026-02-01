@@ -28,18 +28,15 @@ This add-on runs the OpenClaw Gateway on Home Assistant OS, providing secure rem
 | `branch` | Branch to checkout (uses repo's default if omitted) |
 | `github_token` | Token for private repository access |
 | `verbose` | Enable verbose logging |
-| `log_format` | Log output format in the add-on Log tab: `pretty` or `raw` |
-| `log_color` | Enable ANSI colors for pretty logs (may be ignored in the UI) |
-| `log_fields` | Comma-separated metadata keys to append (e.g. `connectionId,uptimeMs,runId`) |
 
 ### First Run
 
 The add-on performs these steps on startup:
 
 1. Clones or updates the OpenClaw repo into `/config/openclaw/openclaw-src`
-2. Installs dependencies and builds the gateway
+2. Installs dependencies and builds the gateway (only if the repo changed)
 3. Runs `openclaw setup` if no config exists
-4. Ensures `gateway.mode=local` if missing
+4. Ensures `gateway.auth.token` exists (if config exists but token missing)
 5. Starts the gateway
 
 ### OpenClaw Configuration
@@ -80,6 +77,11 @@ Then point the OpenClaw app or the CLI at `ws://127.0.0.1:18789`.
 
 Configure bind mode via the OpenClaw CLI (over SSH), not in the add-on options.
 Use `openclaw configure` or `openclaw onboard` to set it in `openclaw.json`.
+
+### First-Run Setup Notes
+
+- If `openclaw.json` exists but has no `gateway.auth.token`, the add-on generates one so the gateway can start.
+- If the gateway refuses to start, run `openclaw configure` to set `gateway.mode=local`.
 
 ## Data Locations
 

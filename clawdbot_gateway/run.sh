@@ -169,6 +169,12 @@ EOF_WRAPPER
   chmod +x "${BASE_DIR}/bin/openclaw"
 }
 
+ensure_gateway_auth_token() {
+  node -e "const fs=require('fs');const crypto=require('crypto');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const auth=gateway.auth||{};let updated=false;const token=String(auth.token||'').trim();if(!token){auth.token=crypto.randomBytes(24).toString('hex');auth.mode=auth.mode||'token';gateway.auth=auth;data.gateway=gateway;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');updated=true;}if(updated){console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
+}
+
+needs_build="true"
+
 if [ ! -d "${REPO_DIR}/.git" ]; then
   log "cloning repo ${REPO_URL} -> ${REPO_DIR}"
   rm -rf "${REPO_DIR}"
@@ -181,36 +187,65 @@ else
   log "updating repo in ${REPO_DIR}"
   git -C "${REPO_DIR}" remote set-url origin "${REPO_URL}"
   git -C "${REPO_DIR}" fetch --prune
-  git -C "${REPO_DIR}" reset --hard
-  git -C "${REPO_DIR}" clean -fd
+  current_head="$(git -C "${REPO_DIR}" rev-parse HEAD)"
   if [ -n "${BRANCH}" ]; then
-    git -C "${REPO_DIR}" checkout "${BRANCH}"
-    git -C "${REPO_DIR}" reset --hard "origin/${BRANCH}"
+    target_branch="${BRANCH}"
   else
-    DEFAULT_BRANCH=$(git -C "${REPO_DIR}" remote show origin | sed -n '/HEAD branch/s/.*: //p')
-    git -C "${REPO_DIR}" checkout "${DEFAULT_BRANCH}"
-    git -C "${REPO_DIR}" reset --hard "origin/${DEFAULT_BRANCH}"
+    target_branch="$(git -C "${REPO_DIR}" remote show origin | sed -n '/HEAD branch/s/.*: //p')"
   fi
+  if [ -z "${target_branch}" ]; then
+    log "failed to determine default branch"
+    exit 1
+  fi
+  target_ref="origin/${target_branch}"
+  target_head="$(git -C "${REPO_DIR}" rev-parse "${target_ref}")"
+  if [ "${current_head}" = "${target_head}" ]; then
+    needs_build="false"
+  fi
+  git -C "${REPO_DIR}" checkout "${target_branch}"
+  git -C "${REPO_DIR}" reset --hard "${target_ref}"
   git -C "${REPO_DIR}" clean -fd
 fi
 
 cd "${REPO_DIR}"
 
 require_openclaw_repo
-log "installing dependencies"
-pnpm config set confirmModulesPurge false >/dev/null 2>&1 || true
-pnpm config set global-bin-dir "${PNPM_HOME}" >/dev/null 2>&1 || true
-pnpm config set global-dir "${BASE_DIR}/.local/share/pnpm/global" >/dev/null 2>&1 || true
-pnpm install --no-frozen-lockfile --prefer-frozen-lockfile --prod=false
 ensure_openclaw_wrapper
-log "building gateway"
-pnpm build
-if [ ! -d "${REPO_DIR}/ui/node_modules" ]; then
-  log "installing UI dependencies"
-  pnpm ui:install
+
+if [ ! -d "${REPO_DIR}/node_modules" ]; then
+  needs_build="true"
 fi
-log "building control UI"
-pnpm ui:build
+
+needs_ui_build="${needs_build}"
+if [ ! -d "${REPO_DIR}/ui/node_modules" ]; then
+  needs_ui_build="true"
+fi
+
+if [ "${needs_build}" = "true" ] || [ "${needs_ui_build}" = "true" ]; then
+  pnpm config set confirmModulesPurge false >/dev/null 2>&1 || true
+  pnpm config set global-bin-dir "${PNPM_HOME}" >/dev/null 2>&1 || true
+  pnpm config set global-dir "${BASE_DIR}/.local/share/pnpm/global" >/dev/null 2>&1 || true
+fi
+
+if [ "${needs_build}" = "true" ]; then
+  log "installing dependencies"
+  pnpm install --no-frozen-lockfile --prefer-frozen-lockfile --prod=false
+  log "building gateway"
+  pnpm build
+else
+  log "repo unchanged; skipping dependency install/build"
+fi
+
+if [ "${needs_ui_build}" = "true" ]; then
+  if [ ! -d "${REPO_DIR}/ui/node_modules" ]; then
+    log "installing UI dependencies"
+    pnpm ui:install
+  fi
+  log "building control UI"
+  pnpm ui:build
+else
+  log "repo unchanged; skipping UI build"
+fi
 
 if [ ! -f "${OPENCLAW_CONFIG_PATH}" ]; then
   openclaw setup --workspace "${WORKSPACE_DIR}"
@@ -218,82 +253,19 @@ else
   log "config exists; skipping openclaw setup"
 fi
 
-ensure_gateway_mode() {
-  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const mode=String(gateway.mode||'').trim();if(!mode){gateway.mode='local';data.gateway=gateway;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
-}
-
-read_gateway_mode() {
-  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const mode=String(gateway.mode||'').trim();if(mode){console.log(mode);}"; 2>/dev/null
-}
-
-ensure_log_file() {
-  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const logging=data.logging||{};const file=String(logging.file||'').trim();if(!file){logging.file='/tmp/openclaw/openclaw.log';data.logging=logging;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
-}
-
-read_log_file() {
-  node -e "const fs=require('fs');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const logging=data.logging||{};const file=String(logging.file||'').trim();if(file){console.log(file);}"; 2>/dev/null
-}
-
-ensure_gateway_auth() {
-  node -e "const fs=require('fs');const crypto=require('crypto');const JSON5=require('json5');const p=process.env.OPENCLAW_CONFIG_PATH;const raw=fs.readFileSync(p,'utf8');const data=JSON5.parse(raw);const gateway=data.gateway||{};const auth=gateway.auth||{};let updated=false;const mode=String(auth.mode||'').trim();if(!mode){auth.mode='token';updated=true;}const token=String(auth.token||'').trim();if(!token){auth.token=crypto.randomBytes(24).toString('hex');updated=true;}if(updated){gateway.auth=auth;data.gateway=gateway;fs.writeFileSync(p, JSON.stringify(data,null,2)+'\\n');console.log('updated');}else{console.log('unchanged');}" 2>/dev/null
-}
-
 if [ -f "${OPENCLAW_CONFIG_PATH}" ]; then
-  mode_status="$(ensure_gateway_mode || true)"
-  if [ "${mode_status}" = "updated" ]; then
-    log "gateway.mode set to local (missing)"
-  elif [ "${mode_status}" = "unchanged" ]; then
-    log "gateway.mode already set"
-  else
-    log "failed to normalize gateway.mode (invalid config?)"
-  fi
-fi
-
-LOG_FILE="/tmp/openclaw/openclaw.log"
-if [ -f "${OPENCLAW_CONFIG_PATH}" ]; then
-  log_status="$(ensure_log_file || true)"
-  if [ "${log_status}" = "updated" ]; then
-    log "logging.file set to ${LOG_FILE} (missing)"
-  elif [ "${log_status}" = "unchanged" ]; then
-    read_log="$(read_log_file || true)"
-    if [ -n "${read_log}" ]; then
-      LOG_FILE="${read_log}"
-    fi
-  else
-    log "failed to normalize logging.file (invalid config?)"
-  fi
-
-  auth_status="$(ensure_gateway_auth || true)"
+  auth_status="$(ensure_gateway_auth_token || true)"
   if [ "${auth_status}" = "updated" ]; then
     log "gateway.auth.token set (missing)"
   elif [ "${auth_status}" = "unchanged" ]; then
     log "gateway.auth.token already set"
   else
-    log "failed to normalize gateway.auth (invalid config?)"
+    log "failed to normalize gateway.auth.token (invalid config?)"
   fi
 fi
-mkdir -p "$(dirname "${LOG_FILE}")"
 
 PORT="$(jq -r .port /data/options.json)"
 VERBOSE="$(jq -r .verbose /data/options.json)"
-LOG_FORMAT="$(jq -r '.log_format // empty' /data/options.json 2>/dev/null || true)"
-LOG_COLOR="$(jq -r '.log_color // empty' /data/options.json 2>/dev/null || true)"
-LOG_FIELDS="$(jq -r '.log_fields // empty' /data/options.json 2>/dev/null || true)"
-
-if [ -z "${LOG_FORMAT}" ] || [ "${LOG_FORMAT}" = "null" ]; then
-  LOG_FORMAT="pretty"
-fi
-if [ -z "${LOG_COLOR}" ] || [ "${LOG_COLOR}" = "null" ]; then
-  LOG_COLOR="false"
-fi
-if [ -z "${LOG_FIELDS}" ] || [ "${LOG_FIELDS}" = "null" ]; then
-  LOG_FIELDS=""
-fi
-if [ "${LOG_FORMAT}" != "pretty" ] && [ "${LOG_FORMAT}" != "raw" ]; then
-  log "log_format=${LOG_FORMAT} is invalid; using pretty"
-  LOG_FORMAT="pretty"
-fi
-
 if [ -z "${PORT}" ] || [ "${PORT}" = "null" ]; then
   PORT="18789"
 fi
@@ -302,12 +274,6 @@ ALLOW_UNCONFIGURED=()
 if [ ! -f "${OPENCLAW_CONFIG_PATH}" ]; then
   log "config missing; allowing unconfigured gateway start"
   ALLOW_UNCONFIGURED=(--allow-unconfigured)
-else
-  gateway_mode="$(read_gateway_mode || true)"
-  if [ -z "${gateway_mode}" ]; then
-    log "gateway.mode missing; allowing unconfigured gateway start"
-    ALLOW_UNCONFIGURED=(--allow-unconfigured)
-  fi
 fi
 
 ARGS=(gateway "${ALLOW_UNCONFIGURED[@]}" --port "${PORT}")
@@ -315,134 +281,4 @@ if [ "${VERBOSE}" = "true" ]; then
   ARGS+=(--verbose)
 fi
 
-child_pid=""
-tail_pid=""
-
-forward_usr1() {
-  if [ -n "${child_pid}" ]; then
-    if ! pkill -USR1 -P "${child_pid}" 2>/dev/null; then
-      kill -USR1 "${child_pid}" 2>/dev/null || true
-    fi
-    log "forwarded SIGUSR1 to gateway process"
-  fi
-}
-
-shutdown_child() {
-  if [ -n "${tail_pid}" ]; then
-    kill -TERM "${tail_pid}" 2>/dev/null || true
-  fi
-  if [ -n "${child_pid}" ]; then
-    kill -TERM "${child_pid}" 2>/dev/null || true
-  fi
-}
-
-format_log_stream() {
-  local format="$1"
-  local use_color="$2"
-  local fields="$3"
-
-  if [ "${format}" != "pretty" ]; then
-    cat
-    return
-  fi
-
-  if ! command -v jq >/dev/null 2>&1; then
-    cat
-    return
-  fi
-
-  local jq_color="false"
-  if [ "${use_color}" = "true" ]; then
-    jq_color="true"
-  fi
-
-  jq -Rr --argjson use_color "${jq_color}" --arg fields "${fields}" '
-    def trim: gsub("^\\s+|\\s+$"; "");
-    def parse_name($raw):
-      if ($raw|type) == "string" then (try ($raw|fromjson) catch null) else null end;
-    def render($v):
-      if ($v|type) == "string" then $v
-      elif ($v|type) == "number" or ($v|type) == "boolean" then ($v|tostring)
-      else ($v|tojson)
-      end;
-    def numeric_entries($obj):
-      ($obj | to_entries | map(select(.key|test("^\\d+$"))) | sort_by(.key|tonumber));
-    def string_parts($obj; $name):
-      (numeric_entries($obj) | map(.value) | map(select(type=="string")) | map(select(. != $name)));
-    def object_meta($obj):
-      (numeric_entries($obj) | map(.value) | map(select(type=="object")) | reduce .[] as $o ({}; . * $o));
-    def colorize($text; $level):
-      if $use_color then
-        (if $level == "ERROR" or $level == "FATAL" then "\u001b[31m"+$text+"\u001b[0m"
-         elif $level == "WARN" then "\u001b[33m"+$text+"\u001b[0m"
-         elif $level == "DEBUG" or $level == "TRACE" then "\u001b[90m"+$text+"\u001b[0m"
-         else "\u001b[36m"+$text+"\u001b[0m"
-         end)
-      else $text end;
-    def collect_fields($meta; $fields):
-      [ $fields[] | select($meta[.] != null) | "\(. )=\(render($meta[.]))" ];
-    def format_line($time; $level; $tag; $message; $fields):
-      ([ $time, (colorize($level; $level)), $tag ] | map(select(. != null and . != "")) | join(" "))
-      + (if $message != "" then " - " + $message else "" end)
-      + (if ($fields|length) > 0 then " | " + ($fields|join(" ")) else "" end);
-    . as $line
-    | (fromjson? // null) as $obj
-    | if $obj == null then $line
-      else
-        ($obj._meta // {}) as $meta
-        | ($meta.name // null) as $name
-        | (parse_name($name) // {}) as $name_meta
-        | (object_meta($obj) + $name_meta) as $merged
-        | ($fields | split(",") | map(trim) | map(select(length>0))) as $field_list
-        | (string_parts($obj; $name) | join(" ")) as $message
-        | if ($message|length) == 0 then $line
-          else
-            ($obj.time // $meta.date // "") as $time
-            | ($meta.logLevelName // "INFO" | tostring | ascii_upcase) as $level
-            | ($name_meta.subsystem // $name_meta.module // "") as $tag
-            | format_line($time; $level; $tag; $message; collect_fields($merged; $field_list))
-          end
-      end
-  '
-}
-
-start_log_tail() {
-  local file="$1"
-  (
-    while [ ! -f "${file}" ]; do
-      sleep 1
-    done
-    tail -n +1 -F "${file}" | format_log_stream "${LOG_FORMAT}" "${LOG_COLOR}" "${LOG_FIELDS}"
-  ) &
-  tail_pid=$!
-}
-
-trap forward_usr1 USR1
-trap shutdown_child TERM INT
-
-while true; do
-  openclaw "${ARGS[@]}" &
-  child_pid=$!
-  start_log_tail "${LOG_FILE}"
-  set +e
-  wait "${child_pid}"
-  status=$?
-  set -e
-  if [ -n "${tail_pid}" ]; then
-    kill -TERM "${tail_pid}" 2>/dev/null || true
-    tail_pid=""
-  fi
-
-  if [ "${status}" -eq 0 ]; then
-    log "gateway exited cleanly"
-    break
-  elif [ "${status}" -eq 129 ]; then
-    log "gateway exited after SIGUSR1; restarting"
-    continue
-  else
-    log "gateway exited uncleanly (status=${status}); restarting"
-    continue
-  fi
-done
-
-exit "${status}"
+exec openclaw "${ARGS[@]}"

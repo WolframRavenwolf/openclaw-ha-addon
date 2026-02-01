@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.17
+- Runtime: remove SIGUSR1 relay and custom restart loop.
+- Logs: drop add-on log formatting options and rely on gateway stdout.
+- Config: only bootstrap gateway.auth.token when missing.
+- Build: rebuild only when the OpenClaw repo changes.
+
 ## 0.2.16
 - Fix: use openclaw CLI after upstream rename. (#11, #12)
 - Config: default repo_url now points to OpenClaw.
@@ -12,7 +18,7 @@
 - Fix: install dev dependencies so gateway builds include tsc. (#9)
 
 ## 0.2.14
-- Add pretty log formatting options for the add-on Log tab.
+- Add pretty log formatting options for the add-on Log tab. (Removed in 0.2.17)
 
 ## 0.2.13
 - Add icon.png and logo.png (cyber-lobster mascot).
@@ -59,7 +65,7 @@
 - Logs: stream gateway log file into add-on stdout.
 
 ## 0.2.2
-- Add HA add-on repository layout and improved SIGUSR1 handling.
+- Add HA add-on repository layout and improved SIGUSR1 handling. (Removed in 0.2.17)
 - Support pinning upstream refs and clean checkouts.
 
 ## 0.2.1

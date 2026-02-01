@@ -16,6 +16,8 @@ Run [OpenClaw](https://github.com/openclaw/openclaw) on Home Assistant OS with s
 3. Configure your SSH public key in the add-on options
 4. Start the add-on and connect via SSH tunnel
 
+After connecting, run `openclaw configure` to finish setup (including gateway mode and auth token).
+
 ## Links
 
 - [Documentation](https://docs.clawd.bot)
