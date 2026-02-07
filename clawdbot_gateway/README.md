@@ -13,7 +13,7 @@ Run [OpenClaw](https://github.com/openclaw/openclaw) on Home Assistant OS with s
   - **AI & Media**: gemini, oracle, nano-pdf, whisper (speech-to-text), summarize, sag (text-to-speech), songsee, video-frames
   - **Smart Home**: openhue (Philips Hue), sonos, eightctl (Eight Sleep)
   - **Communication**: bird (X/Twitter), wacli (WhatsApp)
-  - **Development**: mcporter (MCP servers), tmux
+  - **Development**: clawhub (agent skills), mcporter (MCP servers), tmux
   - **Utilities**: blogwatcher (RSS/Atom), goplaces (Google Places), camsnap (RTSP/ONVIF), blu (BluOS), gifgrep, ordercli (Foodora)
 
 ## Quick Start

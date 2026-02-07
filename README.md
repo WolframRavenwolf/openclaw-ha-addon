@@ -9,6 +9,7 @@ OpenClaw Gateway for HA OS with SSH tunnel support for remote connections.
 
 **Included tools:**
 - **hass-cli** — Home Assistant CLI for controlling and managing Home Assistant
+- **clawhub** — Search, install, update, and publish agent skills from clawhub.com
 - **clawdhub** — ClawdHub integration tool
 - **op** — 1Password CLI for password management
 - **bird** — X/Twitter CLI for reading, searching, and posting
