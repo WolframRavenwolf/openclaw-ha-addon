@@ -44,6 +44,10 @@ RUN apt-get update \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
+ENV BUN_INSTALL=/usr/local/bun
+ENV PNPM_HOME=/pnpm
+ENV PATH="${BUN_INSTALL}/bin:${PNPM_HOME}:${PATH}"
+
 RUN npm install -g bun pnpm \
   && mkdir -p /pnpm \
   && pnpm config set global-bin-dir /pnpm \
@@ -155,6 +159,7 @@ RUN go install github.com/steipete/wacli/cmd/wacli@${WACLI_VERSION} && go clean 
 WORKDIR /opt/openclaw
 
 COPY run.sh /run.sh
-RUN chmod +x /run.sh
+COPY migrate.sh /migrate.sh
+RUN chmod +x /run.sh /migrate.sh
 
 CMD [ "/run.sh" ]
