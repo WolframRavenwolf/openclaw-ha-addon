@@ -80,6 +80,9 @@ RUN go install github.com/steipete/blucli/cmd/blu@${BLUCLI_VERSION} && go clean 
 # [🐹] 📸 camsnap - Capture frames or clips from RTSP/ONVIF cameras.
 RUN go install github.com/steipete/camsnap/cmd/camsnap@${CAMSNAP_VERSION} && go clean -cache -modcache
 
+# [🟥] clawhub - Use the ClawHub CLI to search, install, update, and publish agent skills from clawhub.com. Use when you need to fetch new skills on the fly…
+RUN pnpm add -g clawhub
+
 # [🐹] 🎛️ eightctl - Control Eight Sleep pods (status, temperature, alarms, schedules).
 RUN go install github.com/steipete/eightctl/cmd/eightctl@${EIGHTCTL_VERSION} && go clean -cache -modcache
 
