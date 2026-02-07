@@ -187,6 +187,7 @@ else
   log "updating repo in ${REPO_DIR}"
   git -C "${REPO_DIR}" remote set-url origin "${REPO_URL}"
   git -C "${REPO_DIR}" fetch --prune --tags
+  current_head="$(git -C "${REPO_DIR}" rev-parse HEAD)"
   git -C "${REPO_DIR}" reset --hard
   git -C "${REPO_DIR}" clean -fd
   if [ -n "${BRANCH}" ]; then
@@ -195,16 +196,26 @@ else
       log "Checking out branch: ${BRANCH}"
       # Reset local branch to match remote exactly
       git -C "${REPO_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
+      target_head="$(git -C "${REPO_DIR}" rev-parse HEAD)"
     else
       # If not found on origin, treat it as a Tag or Commit SHA
       log "Checking out tag/commit: ${BRANCH}"
       git -C "${REPO_DIR}" checkout --force "${BRANCH}"
+      target_head="$(git -C "${REPO_DIR}" rev-parse HEAD)"
     fi
   else
     # Fallback to default branch if no specific branch/tag is defined
-    DEFAULT_BRANCH=$(git -C "${REPO_DIR}" remote show origin | sed -n '/HEAD branch/s/.*: //p')
-    git -C "${REPO_DIR}" checkout "${DEFAULT_BRANCH}"
-    git -C "${REPO_DIR}" reset --hard "origin/${DEFAULT_BRANCH}"
+    target_branch="$(git -C "${REPO_DIR}" remote show origin | sed -n '/HEAD branch/s/.*: //p')"
+    if [ -z "${target_branch}" ]; then
+      log "failed to determine default branch"
+      exit 1
+    fi
+    git -C "${REPO_DIR}" checkout "${target_branch}"
+    git -C "${REPO_DIR}" reset --hard "origin/${target_branch}"
+    target_head="$(git -C "${REPO_DIR}" rev-parse HEAD)"
+  fi
+  if [ "${current_head}" = "${target_head}" ]; then
+    needs_build="false"
   fi
 fi
 

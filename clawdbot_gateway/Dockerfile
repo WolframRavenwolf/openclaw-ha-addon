@@ -22,7 +22,9 @@ ARG WACLI_VERSION=latest
 
 ENV GOPATH="/go"
 ENV PNPM_HOME="/pnpm"
-ENV PATH="${GOPATH}/bin:/usr/local/go/bin:${PNPM_HOME}:${PATH}"
+ENV UV_TOOL_DIR="/usr/local/share/uv/tools"
+ENV UV_BIN_DIR="/usr/local/bin"
+ENV PATH="${GOPATH}/bin:/usr/local/go/bin:${PNPM_HOME}:${UV_BIN_DIR}:${PATH}"
 
 # Use bash with pipefail so curl|tar failures stop the build.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -33,18 +35,18 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     jq \
-    less \
     libasound2-dev \
-    lsof \
     nano \
     openssh-server \
     python3-pip \
     ripgrep \
     tmux \
-    vim \
-    zip \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+
+ENV BUN_INSTALL=/usr/local/bun
+ENV PNPM_HOME=/pnpm
+ENV PATH="${BUN_INSTALL}/bin:${PNPM_HOME}:${PATH}"
 
 RUN npm install -g bun pnpm \
   && mkdir -p /pnpm \
@@ -60,13 +62,11 @@ RUN export OP_VER=$(curl -s https://app-updates.agilebits.com/check/1/0/CLI2/en/
     && case "${TARGETARCH}" in \
          "amd64") OP_ARCH="amd64" ;; \
          "arm64") OP_ARCH="arm64" ;; \
-         *) echo "Skipping 1password: Unsupported architecture ${TARGETARCH}"; OP_ARCH="" ;; \
+         *) echo "Unsupported architecture for 1Password CLI: ${TARGETARCH}"; exit 1 ;; \
        esac \
-    && if [ -n "$OP_ARCH" ]; then \
-         curl -sSo op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VER}/op_linux_${OP_ARCH}_v${OP_VER}.zip" \
-         && unzip -od /usr/local/bin/ op.zip op \
-         && rm op.zip; \
-       fi
+    && curl -sSo op.zip "https://cache.agilebits.com/dist/1P/op2/pkg/v${OP_VER}/op_linux_${OP_ARCH}_v${OP_VER}.zip" \
+    && unzip -od /usr/local/bin/ op.zip op \
+    && rm op.zip
 
 # [🟥] 🐦 bird - X/Twitter CLI for reading, searching, and posting via cookies or Sweetistics.
 RUN pnpm add -g @steipete/bird
@@ -102,33 +102,29 @@ RUN go install github.com/steipete/goplaces/cmd/goplaces@${GOPLACES_VERSION} && 
 RUN case "${TARGETARCH}" in \
          "amd64") HIMALAYA_ARCH="x86_64" ;; \
          "arm64") HIMALAYA_ARCH="aarch64" ;; \
-         *) echo "Skipping himalaya: Unsupported architecture ${TARGETARCH}"; HIMALAYA_ARCH="" ;; \
+         *) echo "Unsupported architecture for himalaya: ${TARGETARCH}"; exit 1 ;; \
        esac \
-    && if [ -n "$HIMALAYA_ARCH" ]; then \
-         curl -fsSL "https://github.com/pimalaya/himalaya/releases/latest/download/himalaya.${HIMALAYA_ARCH}-linux.tgz" | tar xz -C /usr/local/bin himalaya; \
-       fi
+    && curl -fsSL "https://github.com/pimalaya/himalaya/releases/latest/download/himalaya.${HIMALAYA_ARCH}-linux.tgz" | tar xz -C /usr/local/bin himalaya
 
 # [🟥] 📦 mcporter - Use the mcporter CLI to list, configure, auth, and call MCP servers/tools directly (HTTP or stdio), including ad-hoc servers, config edits,…
 RUN pnpm add -g mcporter
 
 # [🐍] 📄 nano-pdf - Edit PDFs with natural-language instructions using the nano-pdf CLI.
-RUN pip3 install --no-cache-dir --break-system-packages nano-pdf
+RUN uv tool install nano-pdf
 
 # [🐹] 💎 obsidian - Work with Obsidian vaults (plain Markdown notes) and automate via obsidian-cli.
 RUN go install github.com/Yakitrak/obsidian-cli@${OBSIDIAN_CLI_VERSION} && go clean -cache -modcache
 
 # [🐍] 🎙️ openai-whisper - Local speech-to-text with the Whisper CLI (no API key).
-RUN pip3 install --no-cache-dir --break-system-packages whisper-cli
+RUN uv tool install whisper-cli
 
 # [🐚] 💡 openhue - Control Philips Hue lights/scenes via the OpenHue CLI.
 RUN case "${TARGETARCH}" in \
          "amd64") OPENHUE_ARCH="x86_64" ;; \
          "arm64") OPENHUE_ARCH="arm64" ;; \
-         *) echo "Skipping openhue: Unsupported architecture ${TARGETARCH}"; OPENHUE_ARCH="" ;; \
+         *) echo "Unsupported architecture for openhue: ${TARGETARCH}"; exit 1 ;; \
        esac \
-    && if [ -n "$OPENHUE_ARCH" ]; then \
-         curl -fsSL "https://github.com/openhue/openhue-cli/releases/latest/download/openhue_Linux_${OPENHUE_ARCH}.tar.gz" | tar xz -C /usr/local/bin openhue; \
-       fi
+    && curl -fsSL "https://github.com/openhue/openhue-cli/releases/latest/download/openhue_Linux_${OPENHUE_ARCH}.tar.gz" | tar xz -C /usr/local/bin openhue
 
 # [🟥] 🧿 oracle - Best practices for using the oracle CLI (prompt + file bundling, engines, sessions, and file attachment patterns).
 RUN npm install -g @steipete/oracle
@@ -159,7 +155,6 @@ RUN npm install -g @steipete/summarize
 RUN go install github.com/steipete/wacli/cmd/wacli@${WACLI_VERSION} && go clean -cache -modcache
 
 # ------------------------------------------------------------------------------
-
 
 WORKDIR /opt/openclaw
 
